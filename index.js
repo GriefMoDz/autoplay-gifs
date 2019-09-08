@@ -27,7 +27,7 @@ class AutoplayGIFAvatars extends Plugin {
   }
 
   async patchChatAvatars () {
-    const messageClasses = (await getModule([ 'messageCompact', 'messageCozy' ]));
+    const messageClasses = (await getModule([ 'container', 'messageCompact' ]));
     const MessageGroup = (await getModuleByDisplayName('MessageGroup'));
     inject('autoplayGifAvatars-chatAvatars', MessageGroup.prototype, 'render', (_, res) => {
       if (this.settings.get('chat', true) && res.props && res.props.children) {
@@ -46,7 +46,7 @@ class AutoplayGIFAvatars extends Plugin {
     const UserStore = (await getModule([ 'getCurrentUser' ]));
     const ImageResolver = (await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]));
 
-    const membersClasses = (await getModule([ 'avatarWrapper', 'memberInner' ]));
+    const membersClasses = (await getModule([ 'member', 'icon' ]));
     const MemberList = (await getModuleByDisplayName('MemberListItem'));
     inject('autoplayGifAvatars-memberListAvatars', MemberList.prototype, 'render', function (_, res) {
       if (_this.settings.get('memberList', true) && this.props.user) {
@@ -56,13 +56,13 @@ class AutoplayGIFAvatars extends Plugin {
           return res;
         }
 
-        res.props.children[0].props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+        res.props.avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
       }
 
       return res;
     });
 
-    forceUpdateElement(`.${membersClasses.avatarWrapper.replace(/ /g, '.')}`, true);
+    forceUpdateElement(`.${membersClasses.member.replace(/ /g, '.')}`, true);
   }
 
   async patchGuildList () {
