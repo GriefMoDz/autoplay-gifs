@@ -1,14 +1,16 @@
 const { Plugin } = require('powercord/entities');
 const { React, getModule, getModuleByDisplayName } = require('powercord/webpack');
-const { forceUpdateElement, getOwnerInstance } = require('powercord/util');
+const { forceUpdateElement, getOwnerInstance, waitFor } = require('powercord/util');
 const { inject, uninject } = require('powercord/injector');
 
 const Settings = require('./components/Settings');
-const types = [ 'ChatAvatars', 'MemberListAvatars', 'GuildList' ];
+const types = [ 'AccountAvatar', 'ChatAvatars', 'MemberList', 'GuildList' ];
 
 class AutoplayGIFAvatars extends Plugin {
   async startPlugin () {
-    this.listItemClasses = (await getModule([ 'guildSeparator', 'listItem' ]));
+    this.UserStore = await getModule([ 'getCurrentUser' ]);
+    this.ImageResolver = await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]);
+    this.listItemClasses = await getModule([ 'guildSeparator', 'listItem' ]);
 
     for (const type of types) {
       this[`patch${type}`]();
@@ -22,13 +24,41 @@ class AutoplayGIFAvatars extends Plugin {
 
   pluginWillUnload () {
     for (const type of types) {
-      uninject(`autoplayGifAvatars-${this.toCamelCase(type)}`);
+      uninject(`autoplayGifAvatars-${type.toCamelCase()}`);
     }
   }
 
+  async patchAccountAvatar () {
+    const _this = this;
+    const { ImageResolver, UserStore } = this;
+
+    const containerClasses = (await getModule([ 'container', 'usernameContainer' ]));
+    const containerQuery = `.${containerClasses.container.replace(/ /g, '.')}:not(#powercord-spotify-modal)`;
+
+    const instance = getOwnerInstance(await waitFor(containerQuery));
+    inject('autoplayGifAvatars-accountAvatar', instance.__proto__, 'render', function (_, res) {
+      if (_this.settings.get('account', true)) {
+        const avatarChildren = (!res[1] ? res : res[1]).props.children[0].props.children.props.children();
+        const avatar = avatarChildren.props.children.props.children;
+
+        const userId = this.props.currentUser.id;
+        const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
+        if (!hasAnimatedAvatar) {
+          return res;
+        }
+
+        avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+      }
+
+      return res;
+    });
+
+    instance.forceUpdate();
+  }
+
   async patchChatAvatars () {
-    const messageClasses = (await getModule([ 'container', 'messageCompact' ]));
-    const MessageGroup = (await getModuleByDisplayName('MessageGroup'));
+    const messageClasses = await getModule([ 'container', 'messageCompact' ]);
+    const MessageGroup = await getModuleByDisplayName('MessageGroup');
     inject('autoplayGifAvatars-chatAvatars', MessageGroup.prototype, 'render', (_, res) => {
       if (this.settings.get('chat', true) && res.props && res.props.children) {
         res.props.children[0][0].props.disableAvatarAnimation = false;
@@ -37,32 +67,38 @@ class AutoplayGIFAvatars extends Plugin {
       return res;
     });
 
-    forceUpdateElement(`.${messageClasses.container.replace(/ /g, '.')}`, true);
+    forceUpdateElement(`.${messageClasses.container.split(' ')[0]}`, true);
   }
 
-  async patchMemberListAvatars () {
+  async patchMemberList () {
     const _this = this;
+    const { ImageResolver, UserStore } = this;
 
-    const UserStore = (await getModule([ 'getCurrentUser' ]));
-    const ImageResolver = (await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]));
-
-    const membersClasses = (await getModule([ 'member', 'icon' ]));
-    const MemberList = (await getModuleByDisplayName('MemberListItem'));
-    inject('autoplayGifAvatars-memberListAvatars', MemberList.prototype, 'render', function (_, res) {
-      if (_this.settings.get('memberList', true) && this.props.user) {
-        const userId = this.props.user.id;
-        const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
-        if (!hasAnimatedAvatar) {
-          return res;
+    const membersClasses = await getModule([ 'member', 'icon' ]);
+    const MemberListItem = await getModuleByDisplayName('MemberListItem');
+    inject('autoplayGifAvatars-memberList', MemberListItem.prototype, 'render', function (_, res) {
+      if (this.props.user) {
+        if (_this.settings.get('memberList-statuses', true)) {
+          if (res.props.subText) {
+            res.props.subText.props.animate = true;
+          }
         }
 
-        res.props.avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+        if (_this.settings.get('memberList-avatars', true)) {
+          const userId = this.props.user.id;
+          const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
+          if (!hasAnimatedAvatar) {
+            return res;
+          }
+
+          res.props.avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+        }
       }
 
       return res;
     });
 
-    forceUpdateElement(`.${membersClasses.member.replace(/ /g, '.')}`, true);
+    forceUpdateElement(`.${membersClasses.member.split(' ')[0]}`, true);
   }
 
   async patchGuildList () {
@@ -89,11 +125,11 @@ class AutoplayGIFAvatars extends Plugin {
       return res;
     });
 
-    forceUpdateElement(`.${this.listItemClasses.listItem.replace(/ /g, '.')}`, true);
+    forceUpdateElement(`.${this.listItemClasses.listItem.split(' ')[0]}`, true);
   }
 
   async getGuildInstance () {
-    const listItemQuery = `.${this.listItemClasses.listItem.replace(/ /g, '.')}`;
+    const listItemQuery = `.${this.listItemClasses.listItem.split(' ')[0]}`;
 
     for (const elem of document.querySelectorAll(listItemQuery)) {
       const instance = getOwnerInstance(elem);
@@ -105,18 +141,20 @@ class AutoplayGIFAvatars extends Plugin {
 
   reload (args) {
     for (const type of types) {
-      if (args === this.toCamelCase(type)) {
+      if (args === type.toCamelCase()) {
         uninject(`autoplayGifAvatars-${args}`);
         this[`patch${type}`]();
       }
     }
   }
-
-  toCamelCase (str) {
-    return str.replace(/(?:^\w|[A-Z]|\b\w)/g, (match, index) =>
-      index === 0 ? match.toLowerCase() : match.toUpperCase()
-    ).replace(/\s+/g, '');
-  }
 }
+
+// eslint-disable-next-line no-extend-native
+String.prototype.toCamelCase = function () {
+  const str = this.valueOf();
+  return str.replace(/(?:^\w|[A-Z]|\b\w)/g, (match, index) =>
+    index === 0 ? match.toLowerCase() : match.toUpperCase()
+  ).replace(/\s+/g, '');
+};
 
 module.exports = AutoplayGIFAvatars;
