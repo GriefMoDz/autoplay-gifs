@@ -28,6 +28,14 @@ module.exports = class Settings extends React.Component {
         >
           Autoplay Avatars
         </SwitchItem>
+        <FormTitle>Home</FormTitle>
+        <SwitchItem
+          note='Should animated avatars for Nitro users autoplay in the home/direct messages page?'
+          value={this.props.getSetting('home', true)}
+          onChange={() => ((this.main.reload('home'), this.props.toggleSetting('home')))}
+        >
+          Autoplay Avatars
+        </SwitchItem>
         <FormTitle>Member List (<b style={{ color: '#43b581' }}>Note</b>: If any of the appearances below don't show/hide on first try, switch channels.)</FormTitle>
         <SwitchItem
           note='Should animated avatars for Nitro users autoplay in the member list?'

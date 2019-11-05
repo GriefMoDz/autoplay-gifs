@@ -4,7 +4,7 @@ const { forceUpdateElement, getOwnerInstance, waitFor } = require('powercord/uti
 const { inject, uninject } = require('powercord/injector');
 
 const Settings = require('./components/Settings');
-const types = [ 'AccountAvatar', 'ChatAvatars', 'MemberList', 'GuildList' ];
+const types = [ 'AccountAvatar', 'ChatAvatars', 'MemberList', 'Home', 'GuildList' ];
 
 class AutoplayGIFAvatars extends Plugin {
   async startPlugin () {
@@ -68,6 +68,27 @@ class AutoplayGIFAvatars extends Plugin {
     });
 
     forceUpdateElement(`.${messageClasses.container.split(' ')[0]}`, true);
+  }
+
+  async patchHome () {
+    const { ImageResolver, UserStore } = this;
+
+    const Friends = await getModuleByDisplayName('FluxContainer(Friends)');
+    inject('autoplayGifAvatars-home', Friends.prototype, 'render', (_, res) => {
+      for (const row of res.props.rows._rows) {
+        if (this.settings.get('home', true) && row.user) {
+          const userId = row.key;
+          const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
+          if (!hasAnimatedAvatar) {
+            return res;
+          }
+
+          row.user.getAvatarURL = () => ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+        }
+      }
+
+      return res;
+    });
   }
 
   async patchMemberList () {
