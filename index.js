@@ -37,8 +37,8 @@ class AutoplayGIFAvatars extends Plugin {
 
     inject('autoplayGifAvatars-accountAvatar', instance.__proto__, 'render', function (_, res) {
       if (_this.settings.get('account', true)) {
-        const avatarChildren = findInTree(res, n => n.renderPopout, { walkable: [ 'props', 'children' ] }).children();
-        const avatar = findInTree(avatarChildren, n => n.src, { walkable: [ 'props', 'children' ] });
+        const avatarChildren = findInTree(res, n => n && n.renderPopout, { walkable: [ 'props', 'children' ] }).children();
+        const avatar = findInTree(avatarChildren, n => n && n.src, { walkable: [ 'props', 'children' ] });
         const userId = this.props.currentUser.id;
 
         if (_this.isAvatarAnimated(userId)) {
@@ -109,7 +109,7 @@ class AutoplayGIFAvatars extends Plugin {
       }
 
       if (_this.settings.get('memberList-avatars', true)) {
-        const avatar = findInTree(res, n => n.src);
+        const avatar = findInTree(res, n => n && n.src);
         const userId = this.props.user.id;
 
         if (_this.isAvatarAnimated(userId)) {
@@ -135,7 +135,7 @@ class AutoplayGIFAvatars extends Plugin {
 
     inject('autoplayGifAvatars-guildList', instance.__proto__, 'render', function (_, res) {
       if (_this.settings.get('guildList', true) && this.props.animatable) {
-        const guild = findInTree(res, n => n.icon, { walkable: [ 'props', 'children' ] });
+        const guild = findInTree(res, n => n && n.icon, { walkable: [ 'props', 'children' ] });
         guild.icon = this.props.guild.getIconURL('gif');
       }
 
