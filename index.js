@@ -1,6 +1,6 @@
 const { Plugin } = require('powercord/entities');
 const { React, getModule, getModuleByDisplayName } = require('powercord/webpack');
-const { forceUpdateElement, getOwnerInstance, waitFor } = require('powercord/util');
+const { findInTree, forceUpdateElement, getOwnerInstance, waitFor } = require('powercord/util');
 const { inject, uninject } = require('powercord/injector');
 
 const Settings = require('./components/Settings');
@@ -8,8 +8,8 @@ const types = [ 'AccountAvatar', 'ChatAvatars', 'MemberList', 'Home', 'GuildList
 
 class AutoplayGIFAvatars extends Plugin {
   async startPlugin () {
-    this.UserStore = await getModule([ 'getCurrentUser' ]);
-    this.ImageResolver = await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]);
+    this.userStore = await getModule([ 'getCurrentUser' ]);
+    this.imageResolver = await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]);
     this.listItemClasses = await getModule([ 'guildSeparator', 'listItem' ]);
 
     for (const type of types) {
@@ -30,24 +30,20 @@ class AutoplayGIFAvatars extends Plugin {
 
   async patchAccountAvatar () {
     const _this = this;
-    const { ImageResolver, UserStore } = this;
 
-    const containerClasses = (await getModule([ 'container', 'usernameContainer' ]));
-    const containerQuery = `.${containerClasses.container.replace(/ /g, '.')}:not(#powercord-spotify-modal)`;
-
+    const containerClasses = await getModule([ 'container', 'usernameContainer' ]);
+    const containerQuery = `.${containerClasses.container.split(' ')[0]}:not(#powercord-spotify-modal)`;
     const instance = getOwnerInstance(await waitFor(containerQuery));
+
     inject('autoplayGifAvatars-accountAvatar', instance.__proto__, 'render', function (_, res) {
       if (_this.settings.get('account', true)) {
-        const avatarChildren = (!res[1] ? res : res[1]).props.children[0].props.children.props.children();
-        const avatar = avatarChildren.props.children.props.children;
-
+        const avatarChildren = findInTree(res, n => n.renderPopout, { walkable: [ 'props', 'children' ] }).children();
+        const avatar = findInTree(avatarChildren, n => n.src, { walkable: [ 'props', 'children' ] });
         const userId = this.props.currentUser.id;
-        const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
-        if (!hasAnimatedAvatar) {
-          return res;
-        }
 
-        avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+        if (_this.isAvatarAnimated(userId)) {
+          avatar.src = _this.getAnimatedAvatar(userId);
+        }
       }
 
       return res;
@@ -59,9 +55,14 @@ class AutoplayGIFAvatars extends Plugin {
   async patchChatAvatars () {
     const messageClasses = await getModule([ 'container', 'messageCompact' ]);
     const MessageGroup = await getModuleByDisplayName('MessageGroup');
+
     inject('autoplayGifAvatars-chatAvatars', MessageGroup.prototype, 'render', (_, res) => {
-      if (this.settings.get('chat', true) && res.props && res.props.children) {
-        res.props.children[0][0].props.disableAvatarAnimation = false;
+      if (this.settings.get('chat', true)) {
+        const messages = findInTree(res, n => Array.isArray(n) && n[0] && n[0].key);
+
+        for (const message of messages) {
+          message.props.disableAvatarAnimation = false;
+        }
       }
 
       return res;
@@ -71,48 +72,48 @@ class AutoplayGIFAvatars extends Plugin {
   }
 
   async patchHome () {
-    const { ImageResolver, UserStore } = this;
+    const _this = this;
 
-    const Friends = await getModuleByDisplayName('FluxContainer(Friends)');
-    inject('autoplayGifAvatars-home', Friends.prototype, 'render', (_, res) => {
-      for (const row of res.props.rows._rows) {
-        if (this.settings.get('home', true) && row.user) {
-          const userId = row.key;
-          const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
-          if (!hasAnimatedAvatar) {
-            return res;
-          }
+    const channelClasses = await getModule([ 'channel', 'activityText' ]);
+    const PrivateChannel = await getModuleByDisplayName('PrivateChannel');
 
-          row.user.getAvatarURL = () => ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
-        }
+    inject('autoplayGifAvatars-home', PrivateChannel.prototype, 'render', function (_, res) {
+      const { avatar, subText } = res.props;
+      const userId = this.props.user.id;
+
+      subText.props.animate = true;
+
+      if (_this.settings.get('home', true) && _this.isAvatarAnimated(userId)) {
+        avatar.props.src = _this.getAnimatedAvatar(userId);
       }
 
       return res;
     });
+
+    forceUpdateElement(`.${channelClasses.channel.split(' ')[0]}`, true);
   }
 
   async patchMemberList () {
     const _this = this;
-    const { ImageResolver, UserStore } = this;
 
     const membersClasses = await getModule([ 'member', 'icon' ]);
     const MemberListItem = await getModuleByDisplayName('MemberListItem');
+
     inject('autoplayGifAvatars-memberList', MemberListItem.prototype, 'render', function (_, res) {
-      if (this.props.user) {
-        if (_this.settings.get('memberList-statuses', true)) {
-          if (res.props.subText) {
-            res.props.subText.props.animate = true;
-          }
-        }
+      if (!this.props.user) {
+        return res;
+      }
 
-        if (_this.settings.get('memberList-avatars', true)) {
-          const userId = this.props.user.id;
-          const hasAnimatedAvatar = ImageResolver.hasAnimatedAvatar(UserStore.getUser(userId));
-          if (!hasAnimatedAvatar) {
-            return res;
-          }
+      if (_this.settings.get('memberList-statuses', true) && res.props.subText) {
+        res.props.subText.props.animate = true;
+      }
 
-          res.props.avatar.props.src = ImageResolver.getUserAvatarURL(UserStore.getUser(userId), 'gif');
+      if (_this.settings.get('memberList-avatars', true)) {
+        const avatar = findInTree(res, n => n.src);
+        const userId = this.props.user.id;
+
+        if (_this.isAvatarAnimated(userId)) {
+          avatar.src = _this.getAnimatedAvatar(userId);
         }
       }
 
@@ -133,14 +134,9 @@ class AutoplayGIFAvatars extends Plugin {
     }
 
     inject('autoplayGifAvatars-guildList', instance.__proto__, 'render', function (_, res) {
-      if (!this.props.animatable) {
-        return res;
-      }
-
-      if (_this.settings.get('guildList', true)) {
-        res.props.children
-          .props.children[1].props.children
-          .props.children.props.children.props.icon = this.props.guild.getIconURL('gif');
+      if (_this.settings.get('guildList', true) && this.props.animatable) {
+        const guild = findInTree(res, n => n.icon, { walkable: [ 'props', 'children' ] });
+        guild.icon = this.props.guild.getIconURL('gif');
       }
 
       return res;
@@ -167,6 +163,14 @@ class AutoplayGIFAvatars extends Plugin {
         this[`patch${type}`]();
       }
     }
+  }
+
+  isAvatarAnimated (userId) {
+    return this.imageResolver.hasAnimatedAvatar(this.userStore.getUser(userId));
+  }
+
+  getAnimatedAvatar (userId) {
+    return this.imageResolver.getUserAvatarURL(this.userStore.getUser(userId), 'gif');
   }
 }
 
