@@ -79,12 +79,15 @@ class AutoplayGIFAvatars extends Plugin {
 
     inject('autoplayGifAvatars-home', PrivateChannel.prototype, 'render', function (_, res) {
       const { avatar, subText } = res.props;
-      const userId = this.props.user.id;
 
-      subText.props.animate = true;
+      if (this.props.user) {
+        const userId = this.props.user.id;
 
-      if (_this.settings.get('home', true) && _this.isAvatarAnimated(userId)) {
-        avatar.props.src = _this.getAnimatedAvatar(userId);
+        subText.props.animate = true;
+
+        if (_this.settings.get('home', true) && _this.isAvatarAnimated(userId)) {
+          avatar.props.src = _this.getAnimatedAvatar(userId);
+        }
       }
 
       return res;
