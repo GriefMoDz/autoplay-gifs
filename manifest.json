@@ -1,7 +1,7 @@
 {
-  "name": "Autoplay GIF Avatars",
-  "version": "1.0.4",
+  "name": "Autoplay GIFs",
+  "version": "1.2.4",
   "description": "Spicens up the chat, as well as the guild and member list, and lets you decide when and where animated avatars/guild icons should automatically play.",
-  "author": "Harley#1051 (originally created by Zerebos)",
+  "author": "Zerebos#7790; ported by M|-|4r13y ツ#1051",
   "license": "MIT"
 }
