@@ -75,7 +75,7 @@ module.exports = class AutoplayGIFs extends Plugin {
       if (this.settings.get('chatAvatars', true)) {
         UserPopout.props.children = () => {
           const res = renderAvatar();
-          const userId = res.props.src.split('/')[4];
+          const userId = res.props.src.endsWith('powercord.png') ? null : res.props.src.split('/')[4];
 
           const avatar = this.getUserAvatar(userId);
           if (avatar && avatar.animated) {
@@ -119,19 +119,19 @@ module.exports = class AutoplayGIFs extends Plugin {
   }
 
   getUserAvatar (userId) {
-    if (!userId) {
-      return null;
-    }
-
     const { imageResolver, userStore } = this;
 
-    const user = userStore.getUser(userId);
-    const animated = imageResolver.hasAnimatedAvatar(user);
+    try {
+      const user = userStore.getUser(userId);
+      const animated = imageResolver.hasAnimatedAvatar(user);
 
-    return {
-      animated,
-      url: imageResolver.getUserAvatarURL(user, animated ? 'gif' : 'png')
-    };
+      return {
+        animated,
+        url: imageResolver.getUserAvatarURL(user, animated ? 'gif' : 'png')
+      };
+    } catch (e) {
+      this.error(`Unable to get user avatar as "${userId}" isn't a valid user ID :(`);
+    }
   }
 
   async getGuildComponent () {
@@ -149,14 +149,14 @@ module.exports = class AutoplayGIFs extends Plugin {
     owo.useRef = () => ({});
     owo.useContext = () => ({});
 
-    const Guild = new DecoratedComponent({ guildId: null }).type;
+    const res = new DecoratedComponent({ guildId: null });
 
     owo.useState = ogUseState;
     owo.useLayoutEffect = ogUseLayoutEffect;
     owo.useContext = ogUseContext;
     owo.useRef = ogUseRef;
 
-    return Guild;
+    return res.type;
   }
 
   reloadPatch (patchName) {
