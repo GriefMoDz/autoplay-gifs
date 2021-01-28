@@ -1,6 +1,6 @@
 const { Plugin } = require('powercord/entities');
 const { React, getModule, getModuleByDisplayName } = require('powercord/webpack');
-const { forceUpdateElement, findInReactTree } = require('powercord/util');
+const { findInTree, findInReactTree, forceUpdateElement, getOwnerInstance, waitFor } = require('powercord/util');
 const { inject, uninject } = require('powercord/injector');
 
 const Settings = require('./components/Settings');
@@ -42,7 +42,13 @@ module.exports = class AutoplayGIFs extends Plugin {
 
   async patchGuildList () {
     const _this = this;
-    const Guild = await this.getGuildComponent();
+
+    const { blobContainer } = await getModule([ 'blobContainer' ]);
+
+    const instance = getOwnerInstance(await waitFor(`.${blobContainer}`));
+    const reactInstance = instance?._reactInternalFiber || instance._reactInternals;
+
+    const Guild = findInTree(reactInstance, n => n.type?.displayName === 'Guild', { walkable: [ 'return' ] }).type;
     inject('autoplayGifs-guild-icons', Guild.prototype, 'render', function (_, res) {
       if (!this.props.animatable) {
         return res;
@@ -129,9 +135,7 @@ module.exports = class AutoplayGIFs extends Plugin {
         animated,
         url: imageResolver.getUserAvatarURL(user, animated ? 'gif' : 'png')
       };
-    } catch (e) {
-      this.error(`Unable to get user avatar as "${userId}" isn't a valid user ID :(`);
-    }
+    } catch (_) {}
   }
 
   async getGuildComponent () {
