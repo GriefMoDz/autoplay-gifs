@@ -6,6 +6,17 @@ const { inject, uninject } = require('powercord/injector');
 const Settings = require('./components/Settings');
 
 module.exports = class AutoplayGIFs extends Plugin {
+  constructor () {
+    super();
+
+    this.patches = Object.freeze({
+      GuildList: 'guild-icons',
+      ChatAvatars: 'chat-avatars',
+      ActivityStatus: 'activity-statuses',
+      MemberListAvatars: 'member-list-avatars'
+    });
+  }
+
   async startPlugin () {
     this.userStore = await getModule([ 'getCurrentUser' ]);
     this.imageResolver = await getModule([ 'getUserAvatarURL', 'getGuildIconURL' ]);
@@ -20,22 +31,11 @@ module.exports = class AutoplayGIFs extends Plugin {
       })
     });
 
-    this.patches = Object.freeze({
-      GuildList: 'guild-icons',
-      ChatAvatars: 'chat-avatars',
-      ActivityStatus: 'activity-statuses',
-      MemberListAvatars: 'member-list-avatars'
-    });
-
-    for (const patchName in this.patches) {
-      this[`patch${patchName}`]();
-    }
+    Object.keys(this.patches).forEach(patchName => this[`patch${patchName}`]());
   }
 
   pluginWillUnload () {
-    for (const patchName in this.patches) {
-      uninject(`autoplayGifs-${this.patches[patchName]}`);
-    }
+    Object.keys(this.patches).forEach(patchName => uninject(`apg-${this.patches[patchName]}`));
 
     powercord.api.settings.unregisterSettings('autoplay-gifs');
   }
@@ -49,49 +49,46 @@ module.exports = class AutoplayGIFs extends Plugin {
     const reactInstance = instance?._reactInternalFiber || instance._reactInternals;
 
     const Guild = findInTree(reactInstance, n => n.type?.displayName === 'Guild', { walkable: [ 'return' ] }).type;
-    inject('autoplayGifs-guild-icons', Guild.prototype, 'render', function (_, res) {
+    inject('apg-guild-icons', Guild.prototype, 'render', function (_, res) {
       if (!this.props.animatable) {
         return res;
       }
 
       const GuildNavItem = findInReactTree(res, n => n.icon);
-      if (_this.settings.get('guildIcons', true) && GuildNavItem) {
+      if (_this.settings.get('guildIcons', true) && GuildNavItem?.icon) {
         GuildNavItem.icon = this.props.guild.getIconURL('gif');
       }
 
       return res;
     });
 
-    setImmediate(() => forceUpdateElement(`.${this.listItemClasses.listItem}`, !0));
+    forceUpdateElement(`.${this.listItemClasses.listItem}`, true);
   }
 
   async patchChatAvatars () {
-    const MessageHeader = await getModule(m => m.MessageTimestamp);
-    inject('autoplayGifs-chat-avatars', MessageHeader, 'default', (_, res) => {
-      const UserPopout = res.props.children[0];
-      if (!UserPopout || !UserPopout.props || !UserPopout.props.renderPopout) {
-        return res;
-      }
+    const MessageHeader = await getModule(m => {
+      const defaultMethod = m.__powercordOriginal_default ?? m.default;
+      return (typeof defaultMethod === 'function' ? defaultMethod : null)?.toString().includes('showTimestampOnHover');
+    });
 
-      const renderAvatar = UserPopout.props.children;
-      if (!renderAvatar || typeof renderAvatar !== 'function' || renderAvatar.__patchedAPG) {
-        return res;
-      }
-
+    inject('apg-chat-avatars', MessageHeader, 'default', ([ props ], res) => {
       if (this.settings.get('chatAvatars', true)) {
-        UserPopout.props.children = () => {
-          const res = renderAvatar();
-          const userId = res.props.src.endsWith('powercord.png') ? null : res.props.src.split('/')[4];
+        const AvatarWithPopout = findInReactTree(res, n => n.type?.displayName === 'Popout');
+        if (AvatarWithPopout) {
+          AvatarWithPopout.props.children = (oldMethod => (args) => {
+            let res = oldMethod(args);
+            if (res.type !== 'img' || !props.message) {
+              return res;
+            }
 
-          const avatar = this.getUserAvatar(userId);
-          if (avatar && avatar.animated) {
-            res.props.src = avatar.url;
-          }
+            const avatar = this.getUserAvatar(props.message?.author?.id);
+            if (avatar?.animated) {
+              res.props.src = avatar.url;
+            }
 
-          return res;
-        };
-
-        UserPopout.props.children.__patchedAPG = !0;
+            return res;
+          })(AvatarWithPopout.props.children);
+        }
       }
 
       return res;
@@ -99,12 +96,11 @@ module.exports = class AutoplayGIFs extends Plugin {
   }
 
   async patchMemberListAvatars () {
-    const _this = this;
     const MemberListItem = await getModuleByDisplayName('MemberListItem');
-    inject('autoplayGifs-member-list-avatars', MemberListItem.prototype, 'renderAvatar', function (args, res) {
-      if (_this.settings.get('memberAvatars', true) && res.props.src) {
-        const avatar = _this.getUserAvatar(this.props.user.id);
-        if (avatar && avatar.animated) {
+    inject('apg-member-list-avatars', MemberListItem.prototype, 'renderAvatar', ([ props ], res) => {
+      if (this.settings.get('memberAvatars', true) && res.props?.src && props.id) {
+        const avatar = this.getUserAvatar(props.id);
+        if (avatar?.animated) {
           res.props.src = avatar.url;
         }
       }
@@ -115,13 +111,13 @@ module.exports = class AutoplayGIFs extends Plugin {
 
   async patchActivityStatus () {
     const ActivityStatus = await getModule(m => m.ActivityEmoji);
-    inject('autoplayGifs-activity-statuses', ActivityStatus, 'default', (args) => {
+    inject('apg-activity-statuses', ActivityStatus, 'default', (args) => {
       if (this.settings.get('activityStatuses', true) && args[0]) {
-        args[0].animate = !0;
+        args[0].animate = true;
       }
 
       return args;
-    }, !0);
+    }, true);
   }
 
   getUserAvatar (userId) {
@@ -136,31 +132,6 @@ module.exports = class AutoplayGIFs extends Plugin {
         url: imageResolver.getUserAvatarURL(user, animated ? 'gif' : 'png')
       };
     } catch (_) {}
-  }
-
-  async getGuildComponent () {
-    const DragSourceConnectedGuild = await getModule([ 'LurkingGuild' ]);
-    const { DecoratedComponent } = DragSourceConnectedGuild.default;
-
-    const owo = React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher.current;
-    const ogUseState = owo.useState;
-    const ogUseLayoutEffect = owo.useLayoutEffect;
-    const ogUseContext = owo.useContext;
-    const ogUseRef = owo.useRef;
-
-    owo.useState = () => [ null, () => void 0 ];
-    owo.useLayoutEffect = () => null;
-    owo.useRef = () => ({});
-    owo.useContext = () => ({});
-
-    const res = new DecoratedComponent({ guildId: null });
-
-    owo.useState = ogUseState;
-    owo.useLayoutEffect = ogUseLayoutEffect;
-    owo.useContext = ogUseContext;
-    owo.useRef = ogUseRef;
-
-    return res.type;
   }
 
   reloadPatch (patchName) {

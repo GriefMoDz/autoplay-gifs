@@ -1,6 +1,10 @@
-const { React } = require('powercord/webpack');
-const { FormTitle } = require('powercord/components');
+const { React, getModule } = require('powercord/webpack');
+const { AsyncComponent, FormTitle } = require('powercord/components');
 const { SwitchItem } = require('powercord/components/settings');
+
+const HelpMessageModule = getModule([ 'HelpMessageTypes' ], false);
+const HelpMessage = AsyncComponent.from(HelpMessageModule.default);
+HelpMessage.Types = HelpMessageModule.HelpMessageTypes;
 
 module.exports = class Settings extends React.Component {
   constructor (props) {
@@ -12,10 +16,10 @@ module.exports = class Settings extends React.Component {
   render () {
     return (
       <div>
-        <div className='ghostPill-2-KUPM' style={{ marginBottom: 10 }}>
+        <HelpMessage messageType={HelpMessage.Types.WARNING}>
           Note: If any of the settings below don't trigger on first try, switch channels.
-        </div>
-        <FormTitle>Chat</FormTitle>
+        </HelpMessage>
+        <FormTitle style={{ marginTop: 10 }}>Chat</FormTitle>
         <SwitchItem
           note='Should animated avatars for Nitro users autoplay in the chat area?'
           value={this.props.getSetting('chatAvatars', true)}
